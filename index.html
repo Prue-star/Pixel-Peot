@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pixel Poet — Python × Art</title>
+  <meta name="description" content="Interactive micro-poetry, insights, and multi-mode generative art powered by Python (Pyodide).">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { --bg:#0a0a13; --ink:#e6e6f6; }
+    body { background: radial-gradient(1200px 600px at 70% -100px, #1b0f29 0%, #0a0a13 45%); color: var(--ink); }
+    .glass { background: linear-gradient(180deg, rgba(255,255,255,.06), rgba(255,255,255,.02)); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,.06); }
+    .tag { border:1px solid rgba(255,255,255,.15); border-radius: 9999px; padding:.2rem .6rem; }
+    .kbd { background:#111427; border:1px solid rgba(255,255,255,.08); border-radius:.5rem; padding:.1rem .35rem; font-size:.75rem;}
+    canvas { image-rendering: crisp-edges; }
+    #overlay { position:absolute; inset:0; display:none; align-items:center; justify-content:center; backdrop-filter: blur(6px); background: rgba(5,7,18,.35); border-radius:.75rem; }
+    #overlay .bubble { text-align:center; background: rgba(255,255,255,.06); border:1px solid rgba(255,255,255,.1); padding:1rem 1.25rem; border-radius:.75rem; }
+    #overlay .step { font-size:.9rem; opacity:.9; }
+  </style>
+</head>
+<body class="min-h-screen">
+  <header class="max-w-6xl mx-auto px-6 pt-10 pb-6">
+    <div class="flex items-center justify-between">
+      <h1 class="text-3xl md:text-4xl font-semibold tracking-tight">
+        Pixel Poet <span class="text-fuchsia-400">·</span>
+        <span class="text-lg align-middle text-indigo-300">Python × Art</span>
+      </h1>
+      <div class="hidden md:flex gap-2 text-sm text-indigo-200/80">
+        <span class="tag">Python</span><span class="tag">Canvas</span><span class="tag">Insights</span>
+      </div>
+    </div>
+    <p class="mt-3 max-w-3xl text-indigo-200">
+      Type one word. Python picks a style, writes a micro-poem, and renders **one of four visual modes** (Bloom / Orbit / Wave / Branch).
+    </p>
+    <p id="status" class="mt-2 text-xs text-indigo-300/80">Loading Python…</p>
+  </header>
+
+  <main class="max-w-6xl mx-auto px-6 grid grid-cols-1 lg:grid-cols-5 gap-6 pb-16">
+    <!-- Left -->
+    <section class="glass rounded-2xl p-5 lg:col-span-2">
+      <div class="flex items-center gap-2 text-sm text-indigo-200/80">
+        <span class="tag">1</span><span>Type your seed</span>
+      </div>
+      <div class="mt-3 grid grid-cols-1 gap-3">
+        <input id="seed" class="w-full rounded-xl bg-[#0d0f1d] border border-white/10 px-4 py-3 outline-none focus:ring-2 focus:ring-fuchsia-500/40"
+               placeholder="e.g. love, storm, hustle, focus, heartbreak…" />
+        <div class="grid grid-cols-2 gap-3">
+          <select id="vibe" class="rounded-xl bg-[#0d0f1d] border border-white/10 px-3 py-3">
+            <option>dreamy</option><option>bold</option><option>melancholy</option>
+            <option>electric</option><option>serene</option><option>playful</option>
+          </select>
+          <button id="generate" disabled class="rounded-xl bg-fuchsia-600/40 cursor-not-allowed px-4 py-3 font-medium">Generate ✨</button>
+        </div>
+      </div>
+
+      <div class="mt-6 flex items-center gap-2 text-sm text-indigo-200/80">
+        <span class="tag">2</span><span>Your micro-poem</span>
+      </div>
+      <article id="poem" class="mt-3 whitespace-pre-wrap text-lg leading-relaxed text-indigo-100/95"></article>
+
+      <div class="mt-6 flex items-center gap-2 text-sm text-indigo-200/80">
+        <span class="tag">3</span><span>What this means</span>
+      </div>
+      <p id="summary" class="mt-2 text-sm text-indigo-200/95"></p>
+      <ul id="insights" class="mt-2 text-sm text-indigo-200/95 list-disc pl-5 space-y-1"></ul>
+
+      <div class="mt-6 grid grid-cols-2 gap-3">
+        <button id="shuffle" disabled class="rounded-xl border border-white/10 px-4 py-3 cursor-not-allowed">Shuffle style</button>
+        <button id="share" disabled class="rounded-xl border border-white/10 px-4 py-3 cursor-not-allowed">Share link</button>
+      </div>
+      <p id="shared" class="mt-2 text-xs text-indigo-300/80 break-all"></p>
+    </section>
+
+    <!-- Right -->
+    <section class="glass rounded-2xl p-4 lg:col-span-3 flex flex-col gap-4 relative">
+      <div class="flex items-center justify-between">
+        <div class="flex items-center gap-2 text-sm text-indigo-200/80">
+          <span class="tag">Canvas</span><span id="legend-title" class="text-indigo-300/90"></span>
+        </div>
+        <div class="flex gap-2">
+          <button id="download" disabled class="rounded-lg border border-white/10 px-3 py-2 text-sm cursor-not-allowed">Download PNG</button>
+          <button id="repaint"  disabled class="rounded-lg border border-white/10 px-3 py-2 text-sm cursor-not-allowed">Repaint</button>
+        </div>
+      </div>
+
+      <div class="relative">
+        <div id="overlay" class="flex">
+          <div class="bubble">
+            <div class="text-sm text-indigo-200/90 mb-2">Generating</div>
+            <div class="text-4xl font-semibold mb-1" id="count">3</div>
+            <div class="step text-indigo-300/90" id="step">Seeding palette…</div>
+          </div>
+        </div>
+        <canvas id="art" class="w-full rounded-xl border border-white/8 bg-[#060712]" width="1100" height="700"></canvas>
+      </div>
+
+      <div>
+        <div class="flex items-center gap-2 text-sm text-indigo-200/80 mb-2"><span class="tag">Palette</span></div>
+        <div id="swatches" class="grid grid-cols-5 gap-2"></div>
+        <div id="legend" class="mt-3 text-xs text-indigo-300/90 space-y-1"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="max-w-6xl mx-auto px-6 pb-10 text-sm text-indigo-300/70">
+    © Prudence Nwadike
+  </footer>
+
+  <!-- Pyodide -->
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+
+  <script>
+    // ---------- Boot Python ----------
+    let pyReady = (async () => {
+      const pyodide = await loadPyodide({ indexURL: "https://cdn.jsdelivr.net/pyodide/v0.24.1/full/" });
+
+      const pythonCode = `
+import math, random
+
+def seeded_random(seed: str):
+    h = 2166136261
+    for ch in seed:
+        h ^= ord(ch)
+        h = (h * 16777619) & 0xFFFFFFFF
+    state = h or 1
+    def rnd():
+        nonlocal state
+        x = state
+        x ^= (x << 13) & 0xFFFFFFFF
+        x ^= (x >> 17)
+        x ^= (x << 5) & 0xFFFFFFFF
+        state = x & 0xFFFFFFFF
+        return (state % 10000) / 10000
+    return rnd
+
+def hexcol(r,g,b): return f"#{r:02x}{g:02x}{b:02x}"
+def lerp(a,b,t): return a + (b-a)*t
+
+BASES = {
+    "dreamy": [(84,105,212),(157,129,255),(255,195,255),(157,244,255),(36,28,59)],
+    "bold": [(250,58,91),(255,145,0),(255,225,50),(30,30,30),(240,240,240)],
+    "melancholy": [(29,38,70),(54,69,117),(93,109,126),(171,171,171),(13,15,26)],
+    "electric": [(56,0,255),(0,255,242),(255,0,153),(16,16,32),(240,240,250)],
+    "serene": [(32,78,129),(143,196,219),(210,234,238),(245,245,245),(26,43,64)],
+    "playful": [(255,92,146),(255,176,59),(87,224,179),(73,98,255),(22,22,35)],
+}
+
+ACTIONS = ["drifts","glows","echoes","breathes","hums","unfolds","spills","threads","sparks"]
+NOUNS   = ["halo","pixel","feather","river","ember","mirror","signal","garden","portrait","sky","heartbeat","window"]
+PLACES  = ["in the margins","between streetlights","under rainglass","on midnight roofs","behind eyelids","by the shoreline","at the threshold","inside the hum"]
+ADJS = {
+    "dreamy":["cotton-soft","violet","hazy","weightless","dawn-lit"],
+    "bold":["ferocious","loud","neon","unapologetic","punchy"],
+    "melancholy":["blue-veined","tired","late-autumn","cinder","salted"],
+    "electric":["wired","staccato","overclocked","glitchy","charged"],
+    "serene":["quiet","breezy","pastel","rested","even"],
+    "playful":["cheeky","bubble-wrap","giddy","sprinkle","sparkly"],
+}
+
+VIBE_TAGS = {
+    "dreamy": ["soft", "hopeful"], "bold": ["decisive", "high-energy"],
+    "melancholy": ["reflective", "grounded"], "electric": ["wired", "urgent"],
+    "serene": ["calm", "balanced"], "playful": ["curious", "light"],
+}
+
+# ---------- Poem with multiple templates ----------
+TEMPLATES = [
+    "{seed} {act} {place}\\n{adj} {n1}, {n2} remembers\\nwe are more than noise",
+    "{seed}, {adj} and {act}\\n{n1} meets {n2} {place}\\ntry again, but gentler",
+    "{seed} is a small fire\\n{n1} and {n2} keep watch\\nthe night learns your name",
+    "teach {seed} to breathe\\n{adj} {n1} under {n2}\\nthis will pass, then bloom",
+    "count {n1}s until calm\\n{seed} {act} {place}\\nchoose the smaller step",
+    "{seed} won’t sit still\\n{adj} {n1} tangles {n2}\\nbut you carry the map",
+    "{seed} draws a circle\\n{n1} answers {n2}\\nthe horizon nods back",
+    "hold {seed} lightly\\n{adj} {n1} beside {n2}\\nand tomorrow bends",
+]
+
+def micro_poem(seed: str, vibe: str, rnd):
+    import random as _r
+    t = _r.choice(TEMPLATES)
+    adj = _r.choice(ADJS.get(vibe, ADJS["dreamy"]))
+    n1 = _r.choice(NOUNS); n2 = _r.choice(NOUNS)
+    act = _r.choice(ACTIONS); place = _r.choice(PLACES)
+    return t.format(seed=seed, adj=adj, n1=n1, n2=n2, act=act, place=place)
+
+# ---------- Insights ----------
+def make_insights(seed: str, vibe: str):
+    s = seed.strip().lower() or "it"
+    tags = VIBE_TAGS.get(vibe, ["balanced"])
+    lines = [
+        f"{s.capitalize()} grows from tiny repeats — pick one 5-minute action.",
+        f"Reduce friction: make {s} the easiest next thing, not the hardest.",
+        f"Anchor it: link {s} to a habit you already do daily.",
+    ]
+    summary = f"Mode & palette lean {tags[0]} / {tags[1] if len(tags)>1 else tags[0]}."
+    return summary, lines
+
+# ---------- Palette ----------
+def make_palette(seed: str, vibe: str):
+    rnd = seeded_random(seed + ":" + vibe)
+    cols = list(BASES.get(vibe, BASES["dreamy"]))
+    for i in range(len(cols)-1,0,-1):
+        j = int(rnd()*(i+1)); cols[i], cols[j] = cols[j], cols[i]
+    out = []
+    for (r,g,b) in cols:
+        t = 0.08 + rnd()*0.12
+        r = int(lerp(r, 255 if rnd()<0.5 else 0, t))
+        g = int(lerp(g, 255 if rnd()<0.5 else 0, t))
+        b = int(lerp(b, 255 if rnd()<0.5 else 0, t))
+        out.append(hexcol(r,g,b))
+    return out
+
+# ---------- Mode selection ----------
+KEY_TO_MODE = {
+    "storm":"branch", "lightning":"branch", "anger":"branch", "break":"branch", "heartbreak":"branch",
+    "love":"bloom", "care":"bloom", "joy":"bloom", "peace":"bloom",
+    "hustle":"orbit", "focus":"orbit", "ambition":"orbit", "money":"orbit", "goal":"orbit",
+    "flow":"wave", "music":"wave", "ocean":"wave", "calm":"wave", "breathe":"wave",
+}
+
+def pick_mode(seed: str, vibe: str):
+    s = seed.strip().lower()
+    if s in KEY_TO_MODE: return KEY_TO_MODE[s]
+    # deterministic fallback from seed
+    rnd = seeded_random("mode:"+s+":"+vibe)()
+    modes = ["bloom","orbit","wave","branch"]
+    return modes[int(rnd*len(modes))]
+
+# ---------- Geometry for each mode ----------
+def gen_bloom(rnd, w,h, palette):
+    cx, cy = w*0.5, h*0.52
+    rings=[]; blooms=[]; stars=[]; links=[]
+    # soft rings
+    for i in range(8):
+        t = i/7; r = lerp(60, min(w,h)*0.46, t)
+        rings.append({"rx": r*(1.0+0.12*math.sin(i)), "ry": r*(0.78+0.18*math.cos(i*0.7)),
+                      "rot": 0.2*i, "alpha": 0.22 + 0.45*(1-t), "lw": 1 + 5*(1-t),
+                      "color": palette[i % len(palette)]})
+    # blooms
+    for i in range(160):
+        ang = rnd()*math.tau; rad = 40 + rnd()*260
+        x = cx + math.cos(ang)*rad; y = cy + math.sin(ang)*(rad*0.75)
+        blooms.append({"x":x,"y":y,"r":28+92*rnd(),"alpha":0.06,"color":palette[int(rnd()*len(palette))]})
+    # faint stars/links
+    for i in range(80):
+        x = rnd()*w; y = rnd()*h
+        stars.append({"x":x,"y":y,"s":1+rnd()*2,"alpha":0.55,"color":palette[int(rnd()*len(palette))]})
+    for i in range(40):
+        x1=rnd()*w; y1=rnd()*h; x2=x1+(-80+160*rnd()); y2=y1+(-80+160*rnd())
+        links.append({"x1":x1,"y1":y1,"x2":x2,"y2":y2,"alpha":0.05,"color":palette[i%len(palette)]})
+    return {"mode":"bloom","rings":rings,"blooms":blooms,"stars":stars,"links":links}
+
+def gen_orbit(rnd,w,h,palette):
+    cx,cy=w*0.5,h*0.5
+    rings=[]; sats=[]
+    for i in range(5):
+        r=lerp(90, min(w,h)*0.42, i/4)
+        rings.append({"rx":r,"ry":r*0.85,"rot":0,"alpha":0.35,"lw":2.5,"color":palette[i%len(palette)]})
+        # satellites along orbit
+        k=10+i*3
+        for j in range(k):
+            ang = (j/k)*math.tau + rnd()*0.2
+            x = cx + math.cos(ang)*r
+            y = cy + math.sin(ang)*r*0.85
+            sats.append({"x":x,"y":y,"r":3+4*rnd(),"alpha":0.8,"color":palette[(i+j)%len(palette)]})
+    return {"mode":"orbit","rings":rings,"sats":sats}
+
+def gen_wave(rnd,w,h,palette):
+    bands=[]
+    for i in range(7):
+        base = (i+1)*h/10
+        amp = 18+60*rnd()
+        freq = 0.004 + 0.004*rnd()
+        phase = rnd()*1000
+        pts=[]
+        for x in range(0,w,6):
+            y = base + math.sin(x*freq+phase)*amp
+            pts.append({"x":x,"y":y})
+        bands.append({"pts":pts,"lw":1.5+2.5*rnd(),"alpha":0.12+0.18*rnd(),"color":palette[i%len(palette)]})
+    dots=[]
+    for i in range(140):
+        dots.append({"x":rnd()*w,"y":rnd()*h,"s":1+rnd()*2.5,"alpha":0.5,"color":palette[int(rnd()*len(palette))]})
+    return {"mode":"wave","bands":bands,"dots":dots}
+
+def gen_branch(rnd,w,h,palette):
+    segs=[]
+    def branch(x,y,ang,depth,thick):
+        if depth<=0: return
+        length = 60+120*rnd()
+        x2 = x + math.cos(ang)*length
+        y2 = y + math.sin(ang)*length
+        segs.append({"x1":x,"y1":y,"x2":x2,"y2":y2,"lw":thick,"alpha":0.18,"color":palette[depth%len(palette)]})
+        k = 2 + int(rnd()*2)
+        for i in range(k):
+            branch(x2,y2, ang + (-0.9+1.8*rnd()), depth-1, max(0.8, thick*0.72))
+    # start from center/top
+    for i in range(3):
+        branch(w*0.5 + (-80+160*rnd()), h*0.58, -math.pi/2 + (-0.4+0.8*rnd()), 6, 4.2)
+    sparks=[]
+    for i in range(90):
+        sparks.append({"x":rnd()*w,"y":rnd()*h,"s":1+rnd()*2,"alpha":0.5,"color":palette[int(rnd()*len(palette))]})
+    return {"mode":"branch","segs":segs,"sparks":sparks}
+
+def generate(seed: str, vibe: str, w: int, h: int):
+    palette = make_palette(seed, vibe)
+    rndf = seeded_random(seed + ":" + vibe)
+    mode = pick_mode(seed, vibe)
+
+    if mode=="bloom":
+        art = gen_bloom(rndf, w,h, palette)
+        legend = ["Rings energy cycles","Blooms feelings","Stars memory points","Links soft associations"]
+    elif mode=="orbit":
+        art = gen_orbit(rndf, w,h, palette)
+        legend = ["Rings orbits/goals","Satellites milestones"]
+    elif mode=="wave":
+        art = gen_wave(rndf, w,h, palette)
+        legend = ["Bands rhythms/flow","Dots spark notes"]
+    else:
+        art = gen_branch(rndf, w,h, palette)
+        legend = ["Branches shocks/paths","Sparks sudden ideas"]
+
+    poem = micro_poem(seed, vibe, rndf)
+    summary, advice = make_insights(seed, vibe)
+    out = {"palette":palette, "poem":poem, "summary":summary, "advice":advice,
+           "mode": art["mode"], "legend": legend, "title": f"{seed.capitalize()} · {vibe}"}
+    out.update(art)
+    return out
+`;
+      await pyodide.runPythonAsync(pythonCode);
+      return pyodide;
+    })();
+
+    // ---------- DOM helpers ----------
+    const $ = (id) => document.getElementById(id);
+    const cnv = $("art");
+    const ctx = cnv.getContext("2d");
+
+    function enableUI() {
+      ["generate","shuffle","share","download","repaint"].forEach(id=>{
+        const b = $(id); b.disabled = false; b.classList.remove("cursor-not-allowed");
+        if (id==="generate") b.classList.remove("bg-fuchsia-600/40");
+      });
+      $("status").textContent = "Python ready.";
+    }
+
+    function setSwatches(cols) {
+      const wrap = $("swatches"); wrap.innerHTML = "";
+      cols.slice(0,5).forEach(c => {
+        const el = document.createElement("div");
+        el.className = "rounded-lg border border-white/20 h-10";
+        el.style.background = c; el.title = c;
+        wrap.appendChild(el);
+      });
+    }
+
+    function setLegend(mode, legendArr) {
+      $("legend-title").textContent = `Mode: ${mode}`;
+      $("legend").innerHTML = legendArr.map(s => `<div><span class="kbd">${s.split(" ")[0]}</span> ${s.split(" ").slice(1).join(" ")}</div>`).join("");
+    }
+
+    function renderArt(data) {
+      const w = cnv.width, h = cnv.height;
+      ctx.clearRect(0,0,w,h);
+      ctx.fillStyle = data.palette[data.palette.length-1];
+      ctx.fillRect(0,0,w,h);
+
+      if (data.mode === "bloom") {
+        data.rings.forEach(r=>{
+          ctx.save(); ctx.translate(w*0.5,h*0.52); ctx.rotate(r.rot);
+          ctx.globalAlpha=r.alpha; ctx.lineWidth=r.lw; ctx.strokeStyle=r.color;
+          ctx.beginPath(); ctx.ellipse(0,0,r.rx,r.ry,0,0,Math.PI*2); ctx.stroke(); ctx.restore();
+        });
+        data.blooms.forEach(b=>{ ctx.globalAlpha=b.alpha; ctx.fillStyle=b.color;
+          ctx.beginPath(); ctx.arc(b.x,b.y,b.r,0,Math.PI*2); ctx.fill(); });
+        data.links.forEach(l=>{ ctx.globalAlpha=l.alpha; ctx.strokeStyle=l.color; ctx.lineWidth=1;
+          ctx.beginPath(); ctx.moveTo(l.x1,l.y1); ctx.lineTo(l.x2,l.y2); ctx.stroke(); });
+        data.stars.forEach(s=>{ ctx.globalAlpha=s.alpha; ctx.fillStyle=s.color; ctx.fillRect(s.x,s.y,s.s,s.s); });
+      }
+
+      if (data.mode === "orbit") {
+        data.rings.forEach(r=>{ ctx.globalAlpha=r.alpha; ctx.lineWidth=r.lw; ctx.strokeStyle=r.color;
+          ctx.beginPath(); ctx.ellipse(w*0.5,h*0.5,r.rx,r.ry,0,0,Math.PI*2); ctx.stroke(); });
+        data.sats.forEach(s=>{ ctx.globalAlpha=s.alpha; ctx.fillStyle=s.color;
+          ctx.beginPath(); ctx.arc(s.x,s.y,s.r,0,Math.PI*2); ctx.fill(); });
+      }
+
+      if (data.mode === "wave") {
+        data.bands.forEach(b=>{
+          ctx.globalAlpha=b.alpha; ctx.lineWidth=b.lw; ctx.strokeStyle=b.color;
+          ctx.beginPath(); b.pts.forEach((p,i)=> i?ctx.lineTo(p.x,p.y):ctx.moveTo(p.x,p.y)); ctx.stroke();
+        });
+        data.dots.forEach(d=>{ ctx.globalAlpha=d.alpha; ctx.fillStyle=d.color; ctx.fillRect(d.x,d.y,d.s,d.s); });
+      }
+
+      if (data.mode === "branch") {
+        data.segs.forEach(s=>{ ctx.globalAlpha=s.alpha; ctx.lineWidth=s.lw; ctx.strokeStyle=s.color;
+          ctx.beginPath(); ctx.moveTo(s.x1,s.y1); ctx.lineTo(s.x2,s.y2); ctx.stroke(); });
+        data.sparks.forEach(sp=>{ ctx.globalAlpha=sp.alpha; ctx.fillStyle=sp.color; ctx.fillRect(sp.x,sp.y,sp.s,sp.s); });
+      }
+
+      ctx.globalAlpha = 1;
+    }
+
+    // 3–2–1 overlay
+    function countdownOverlay(steps, fn) {
+      const overlay = $("overlay"), countEl = $("count"), stepEl = $("step");
+      overlay.style.display = "flex"; let i = 0;
+      function tick(){ const [n,label]=steps[i]; countEl.textContent=n; stepEl.textContent=label; i++;
+        if(i<steps.length){ setTimeout(tick, 380);} else { overlay.style.display="none"; fn(); } }
+      tick();
+    }
+
+    async function runGenerate(forceSeed) {
+      const py = await pyReady;
+      const seedRaw = (forceSeed !== undefined && forceSeed !== null) ? forceSeed : ($("seed").value || "untitled");
+      const seed = String(seedRaw).trim();
+      const vibe = $("vibe").value;
+
+      const fn = py.globals.get("generate");
+      const result = fn(seed, vibe, cnv.width, cnv.height).toJs({ dict_converter: Object.fromEntries });
+
+      $("poem").innerText = result.poem;
+      $("summary").innerText = result.summary;
+      $("insights").innerHTML = "";
+      result.advice.forEach(line => {
+        const li = document.createElement("li"); li.textContent = line; $("insights").appendChild(li);
+      });
+
+      setSwatches(result.palette);
+      setLegend(result.mode, result.legend);
+      renderArt(result);
+    }
+
+    // Events
+    $("generate").addEventListener("click", () => {
+      countdownOverlay([[3,"Choosing mode…"],[2,"Writing poem…"],[1,"Painting…"]], () => runGenerate());
+    });
+    $("repaint").addEventListener("click", () => runGenerate());
+    $("shuffle").addEventListener("click", () => runGenerate());
+    $("download").addEventListener("click", () => {
+      const url = cnv.toDataURL("image/png");
+      const a = document.createElement("a");
+      a.href = url; const s = ($("seed").value || "pixel-poet").replace(/\s+/g,"-");
+      a.download = `${s}.png`; a.click();
+    });
+    $("share").addEventListener("click", () => {
+      const seed = $("seed").value || "untitled";
+      const vibe = $("vibe").value;
+      const url = `${location.origin}${location.pathname}?seed=${encodeURIComponent(seed)}&vibe=${encodeURIComponent(vibe)}`;
+      $("shared").innerText = url; navigator.clipboard?.writeText(url).catch(()=>{});
+    });
+
+    // First paint
+    (async () => {
+      try {
+        const u = new URL(window.location.href);
+        const seed = u.searchParams.get("seed");
+        const vibe = u.searchParams.get("vibe");
+        if (seed) $("seed").value = seed;
+        if (vibe) $("vibe").value = vibe;
+        await pyReady; enableUI(); await runGenerate(seed !== null ? seed : "love");
+      } catch (e) {
+        console.error(e); $("status").textContent = "Python failed to load. Check internet/extensions.";
+      }
+    })();
+  </script>
+</body>
+</html>
